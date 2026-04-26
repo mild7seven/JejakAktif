@@ -5,220 +5,285 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>JejakAktif</title>
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#4CAF50">
+    <meta name="theme-color" content="#FC4C02">
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     
     <style>
-        body, html { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; height: 100%; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
-        .overlay {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 90%; max-width: 400px; background: rgba(255, 255, 255, 0.95);
-            padding: 15px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            z-index: 1000; text-align: center; backdrop-filter: blur(5px);
+        :root { --strava-orange: #FC4C02; --dark-bg: #1a1a1a; }
+        body, html { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--dark-bg); color: white; height: 100%; overflow: hidden; }
+        
+        #map { height: 100vh; width: 100vw; position: absolute; top: 0; left: 0; }
+
+        /* Kustomisasi Marker MapLibre */
+        .user-marker {
+            width: 18px; height: 18px;
+            background-color: var(--strava-orange);
+            border: 3px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(252, 76, 2, 0.8);
+            transition: transform 0.2s;
         }
-        .stats { display: flex; justify-content: space-around; margin-bottom: 15px; }
-        .stat-box { display: flex; flex-direction: column; }
-        .stat-value { font-size: 1.2rem; font-weight: bold; color: #333; }
-        .stat-label { font-size: 0.8rem; color: #777; }
-        .btn {
-            border: none; padding: 12px 24px; border-radius: 25px; font-size: 1rem;
-            font-weight: bold; color: white; cursor: pointer; width: 45%; transition: 0.3s;
+
+        .header {
+            position: absolute; top: 0; width: 100%; padding: 20px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent);
+            z-index: 10; text-align: center; pointer-events: none;
         }
-        #btnStart { background-color: #4CAF50; }
-        #btnStop { background-color: #f44336; display: none; }
-        #btnReset { background-color: #2196F3; display: none; width: 45%; }
-        .controls { display: flex; justify-content: space-between; gap: 10px; }
-        .status { font-size: 0.85rem; color: #555; margin-bottom: 10px; font-weight: 600; }
+        .header h1 { margin: 0; font-size: 1.2rem; font-weight: 800; letter-spacing: 2px; color: var(--strava-orange); }
+
+        .stats-container {
+            position: absolute; bottom: 0; width: 100%;
+            background: rgba(26, 26, 26, 0.95);
+            border-top-left-radius: 25px; border-top-right-radius: 25px;
+            padding: 25px 20px 40px 20px; z-index: 10;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.7);
+            box-sizing: border-box; backdrop-filter: blur(10px);
+        }
+
+        .main-stats { display: flex; justify-content: space-between; margin-bottom: 25px; }
+        .stat-item { text-align: center; flex: 1; }
+        .stat-value { font-size: 1.8rem; font-weight: 800; display: block; }
+        .stat-label { font-size: 0.7rem; color: #aaa; text-transform: uppercase; font-weight: 600; }
+
+        .btn-record {
+            background: var(--strava-orange); color: white; border: none;
+            width: 70px; height: 70px; border-radius: 50%;
+            font-size: 1.5rem; cursor: pointer; display: flex;
+            align-items: center; justify-content: center;
+            margin: 0 auto; box-shadow: 0 5px 20px rgba(252, 76, 2, 0.5);
+            transition: transform 0.2s;
+        }
+        .btn-record:active { transform: scale(0.9); }
+        .btn-stop { background: #fff; color: #000; border-radius: 12px; padding: 15px 40px; font-weight: 800; display: none; margin: 0 auto; border: none; }
+
+        .status-badge {
+            background: rgba(252, 76, 2, 0.15); color: var(--strava-orange);
+            padding: 6px 14px; border-radius: 20px; font-size: 0.75rem;
+            font-weight: 700; margin-bottom: 15px; display: inline-block;
+            border: 1px solid rgba(252, 76, 2, 0.3);
+        }
     </style>
 </head>
 <body>
 
+    <div class="header">
+        <h1>JEJAKAKTIF</h1>
+    </div>
+
     <div id="map"></div>
 
-    <div class="overlay">
-        <div class="status" id="statusText">Siap untuk memulai</div>
-        <div class="stats">
-            <div class="stat-box">
+    <div class="stats-container">
+        <center><div class="status-badge" id="statusLabel">MENCARI LOKASI...</div></center>
+        
+        <div class="main-stats">
+            <div class="stat-item">
+                <span class="stat-value" id="valDist">0.00</span>
+                <span class="stat-label">Jarak (KM)</span>
+            </div>
+            <div class="stat-item">
                 <span class="stat-value" id="valSteps">0</span>
                 <span class="stat-label">Langkah</span>
             </div>
-            <div class="stat-box">
-                <span class="stat-value" id="valDist">0.00</span>
-                <span class="stat-label">Jarak (km)</span>
-            </div>
-            <div class="stat-box">
+            <div class="stat-item">
                 <span class="stat-value" id="valCal">0</span>
-                <span class="stat-label">Kalori (kcal)</span>
+                <span class="stat-label">Kalori</span>
             </div>
         </div>
-        <div class="controls">
-            <button id="btnStart" class="btn">Mulai</button>
-            <button id="btnStop" class="btn">Selesai</button>
-            <button id="btnReset" class="btn">Reset</button>
-        </div>
+
+        <button id="btnAction" class="btn-record" disabled style="opacity:0.5;">●</button>
+        <button id="btnStop" class="btn-stop">SELESAI</button>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     
     <script>
-        // Registrasi Service Worker
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Reg Gagal:', err));
-        }
-
-        // Variabel Utama
-        let map, marker, polyline;
-        let watchId = null;
-        let isTracking = false;
-        
-        let totalDistanceMeters = 0; // Hanya jarak berjalan (< 7 km/jam)
+        let map, marker, watchId, wakeLock = null;
+        let isRecording = false;
+        let totalMeters = 0;
         let lastLat = null, lastLng = null, lastTimestamp = null;
         
+        // Array GeoJSON format [Lng, Lat]
         let pathCoordinates = [];
 
-        // Inisialisasi Peta Leaflet
+        // Inisialisasi MapLibre
         function initMap() {
-            map = L.map('map').setView([-6.200000, 106.816666], 15); // Default Jakarta
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(map);
+            map = new maplibregl.Map({
+                container: 'map',
+                // Menggunakan Dark Matter basemap gratis tanpa API Key
+                style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+                center: [106.816666, -6.200000], // [Lng, Lat]
+                zoom: 16,
+                pitch: 50, // Kemiringan 3D
+                bearing: 0,
+                attributionControl: false
+            });
 
-            polyline = L.polyline([], {color: '#4CAF50', weight: 5, opacity: 0.8}).addTo(map);
-            
-            // Dapatkan lokasi awal
-            navigator.geolocation.getCurrentPosition(pos => {
-                const { latitude, longitude } = pos.coords;
-                map.setView([latitude, longitude], 17);
-                marker = L.marker([latitude, longitude]).addTo(map);
-            }, err => {
-                document.getElementById('statusText').innerText = "Gagal memuat lokasi awal. Cek izin GPS.";
-            }, { enableHighAccuracy: true });
+            // Elemen Marker HTML kustom
+            const markerDiv = document.createElement('div');
+            markerDiv.className = 'user-marker';
+            marker = new maplibregl.Marker({ element: markerDiv });
+
+            map.on('load', () => {
+                // Tambahkan source data GeoJSON untuk garis rute
+                map.addSource('routeSource', {
+                    'type': 'geojson',
+                    'data': {
+                        'type': 'Feature',
+                        'properties': {},
+                        'geometry': {
+                            'type': 'LineString',
+                            'coordinates': []
+                        }
+                    }
+                });
+
+                // Tambahkan layer untuk menggambar garis
+                map.addLayer({
+                    'id': 'routeLayer',
+                    'type': 'line',
+                    'source': 'routeSource',
+                    'layout': {
+                        'line-join': 'round',
+                        'line-cap': 'round'
+                    },
+                    'paint': {
+                        'line-color': '#FC4C02',
+                        'line-width': 6,
+                        'line-opacity': 0.9
+                    }
+                });
+
+                // Mulai cari lokasi
+                startTracking();
+            });
+
+            if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
         }
 
-        // Haversine formula untuk menghitung jarak presisi antara 2 titik (meter)
+        // Kalkulasi Jarak Haversine (output: meter)
         function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Radius bumi dalam meter
-            const φ1 = lat1 * Math.PI/180;
-            const φ2 = lat2 * Math.PI/180;
-            const Δφ = (lat2-lat1) * Math.PI/180;
-            const Δλ = (lon2-lon1) * Math.PI/180;
-
-            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                      Math.cos(φ1) * Math.cos(φ2) *
-                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            return R * c; 
+            const R = 6371e3;
+            const p1 = lat1 * Math.PI/180;
+            const p2 = lat2 * Math.PI/180;
+            const dp = (lat2-lat1) * Math.PI/180;
+            const dl = (lon2-lon1) * Math.PI/180;
+            const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
         }
 
-        function updateStats() {
-            // Asumsi: 1 langkah = 0.762 meter
-            const steps = Math.floor(totalDistanceMeters / 0.762);
-            // Asumsi: Berjalan 1 km membakar sekitar 60 kalori
-            const km = totalDistanceMeters / 1000;
-            const calories = Math.floor(km * 60);
-
+        function updateUI() {
+            const km = totalMeters / 1000;
             document.getElementById('valDist').innerText = km.toFixed(2);
-            document.getElementById('valSteps').innerText = steps;
-            document.getElementById('valCal').innerText = calories;
+            document.getElementById('valSteps').innerText = Math.floor(totalMeters / 0.762);
+            document.getElementById('valCal').innerText = Math.floor(km * 60);
         }
 
-        function handlePosition(position) {
-            const currentLat = position.coords.latitude;
-            const currentLng = position.coords.longitude;
-            const currentAccuracy = position.coords.accuracy;
-            const currentTimestamp = position.timestamp;
+        function handlePosition(pos) {
+            const { latitude, longitude, accuracy } = pos.coords;
+            const currentTimestamp = pos.timestamp;
+            const currentLngLat = [longitude, latitude]; // Format MapLibre
 
-            // Abaikan jika akurasi sangat buruk (> 20 meter)
-            if (currentAccuracy > 20) return;
-
-            const currentLatLng = [currentLat, currentLng];
-
-            // Animasi marker & Update Map
-            if(marker) {
-                marker.setLatLng(currentLatLng);
-                map.panTo(currentLatLng);
-            } else {
-                marker = L.marker(currentLatLng).addTo(map);
+            // Aktifkan tombol jika lokasi pertama kali dikunci
+            const btnStart = document.getElementById('btnAction');
+            if (btnStart.disabled && accuracy < 50) {
+                btnStart.disabled = false;
+                btnStart.style.opacity = '1';
+                document.getElementById('statusLabel').innerText = "STANDBY (GPS READY)";
             }
 
-            if (isTracking) {
+            // Set Marker & Kamera
+            marker.setLngLat(currentLngLat).addTo(map);
+            
+            // Pan kamera secara dinamis
+            if (isRecording || pathCoordinates.length === 0) {
+                map.easeTo({ center: currentLngLat, duration: 1000 });
+            }
+
+            // Logika Perekaman
+            if (isRecording && accuracy < 25) {
                 if (lastLat !== null && lastLng !== null) {
-                    const distance = calculateDistance(lastLat, lastLng, currentLat, currentLng);
-                    const timeDiff = (currentTimestamp - lastTimestamp) / 1000; // detik
+                    const distance = calculateDistance(lastLat, lastLng, latitude, longitude);
+                    const timeDiff = (currentTimestamp - lastTimestamp) / 1000;
                     
                     if (timeDiff > 0) {
-                        const speedKmh = (distance / timeDiff) * 3.6; // meter/detik ke km/jam
-
-                        // Filter: Jika kecepatan <= 7 km/jam, dihitung sebagai berjalan kaki
+                        const speedKmh = (distance / timeDiff) * 3.6;
+                        
                         if (speedKmh <= 7) {
-                            totalDistanceMeters += distance;
-                            document.getElementById('statusText').innerText = `Merekam... (${speedKmh.toFixed(1)} km/jam)`;
+                            totalMeters += distance;
+                            document.getElementById('statusLabel').innerText = `RECORDING (${speedKmh.toFixed(1)} km/h)`;
                         } else {
-                            document.getElementById('statusText').innerText = `Kendaraan terdeteksi (${speedKmh.toFixed(1)} km/jam). Langkah dijeda.`;
+                            document.getElementById('statusLabel').innerText = `PAUSED - SPEED > 7 KM/H`;
                         }
                     }
                 }
 
-                // Tambahkan rute ke peta terlepas dari kecepatan (untuk melihat jalur penuh)
-                pathCoordinates.push(currentLatLng);
-                polyline.setLatLngs(pathCoordinates);
+                // Update Garis di Peta
+                pathCoordinates.push(currentLngLat);
+                map.getSource('routeSource').setData({
+                    'type': 'Feature',
+                    'properties': {},
+                    'geometry': { 'type': 'LineString', 'coordinates': pathCoordinates }
+                });
                 
-                updateStats();
-
-                lastLat = currentLat;
-                lastLng = currentLng;
+                updateUI();
+                lastLat = latitude;
+                lastLng = longitude;
                 lastTimestamp = currentTimestamp;
             }
         }
 
-        // Tombol Kontrol
-        document.getElementById('btnStart').addEventListener('click', () => {
-            isTracking = true;
-            document.getElementById('btnStart').style.display = 'none';
-            document.getElementById('btnStop').style.display = 'block';
-            document.getElementById('btnReset').style.display = 'none';
-            document.getElementById('statusText').innerText = "Merekam lokasi...";
-
-            // Mulai pelacakan GPS akurasi tinggi
+        function startTracking() {
             watchId = navigator.geolocation.watchPosition(handlePosition, 
-                err => document.getElementById('statusText').innerText = "GPS Error: " + err.message, 
-                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                err => document.getElementById('statusLabel').innerText = "GPS ERROR", 
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
             );
-        });
+        }
 
-        document.getElementById('btnStop').addEventListener('click', () => {
-            isTracking = false;
-            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+        async function toggleRecord() {
+            isRecording = true;
+            lastLat = null; lastLng = null; pathCoordinates = [];
+            totalMeters = 0; updateUI();
             
-            document.getElementById('btnStop').style.display = 'none';
-            document.getElementById('btnStart').style.display = 'none';
-            document.getElementById('btnReset').style.display = 'block';
-            document.getElementById('statusText').innerText = "Rute selesai direkam.";
-            
-            // Fit peta untuk menampilkan seluruh rute
-            if (pathCoordinates.length > 0) {
-                map.fitBounds(polyline.getBounds());
-            }
-        });
-
-        document.getElementById('btnReset').addEventListener('click', () => {
-            totalDistanceMeters = 0;
-            pathCoordinates = [];
-            lastLat = null; lastLng = null;
-            polyline.setLatLngs([]);
-            updateStats();
-            
-            document.getElementById('btnReset').style.display = 'none';
-            document.getElementById('btnStart').style.display = 'block';
-            document.getElementById('statusText').innerText = "Siap untuk memulai";
-            
-            navigator.geolocation.getCurrentPosition(pos => {
-                map.setView([pos.coords.latitude, pos.coords.longitude], 17);
+            // Bersihkan garis rute sebelumnya
+            map.getSource('routeSource').setData({
+                'type': 'Feature',
+                'properties': {},
+                'geometry': { 'type': 'LineString', 'coordinates': [] }
             });
-        });
 
+            document.getElementById('btnAction').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'block';
+            document.getElementById('statusLabel').innerText = "RECORDING START";
+            
+            if ('wakeLock' in navigator) {
+                try { wakeLock = await navigator.wakeLock.request('screen'); } 
+                catch (err) { console.error("Wake Lock gagal:", err); }
+            }
+        }
+
+        function stopRecord() {
+            isRecording = false;
+            document.getElementById('btnAction').style.display = 'flex';
+            document.getElementById('btnStop').style.display = 'none';
+            document.getElementById('statusLabel').innerText = "WORKOUT FINISHED";
+            
+            if (wakeLock) { wakeLock.release().then(() => wakeLock = null); }
+            
+            // Fit peta agar seluruh rute terlihat
+            if (pathCoordinates.length > 1) {
+                const bounds = new maplibregl.LngLatBounds(pathCoordinates[0], pathCoordinates[0]);
+                for (const coord of pathCoordinates) bounds.extend(coord);
+                map.fitBounds(bounds, { padding: 50, pitch: 0 }); // Ubah pitch ke 0 untuk meninjau rute dari atas
+            }
+        }
+
+        // Event Listener Tombol
+        document.getElementById('btnAction').onclick = toggleRecord;
+        document.getElementById('btnStop').onclick = stopRecord;
+        
+        // Inisialisasi
         window.onload = initMap;
     </script>
 </body>
