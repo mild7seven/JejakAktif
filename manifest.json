@@ -1,0 +1,17 @@
+{
+  "name": "JejakAktif - Pelacak Langkah",
+  "short_name": "JejakAktif",
+  "description": "Aplikasi akurat pelacak langkah kaki, jarak, dan kalori terintegrasi GPS.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4CAF50",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/5038/5038590.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
