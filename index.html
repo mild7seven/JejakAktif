@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JejakAktif</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4CAF50">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body, html { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; height: 100%; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        .overlay {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 400px; background: rgba(255, 255, 255, 0.95);
+            padding: 15px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000; text-align: center; backdrop-filter: blur(5px);
+        }
+        .stats { display: flex; justify-content: space-around; margin-bottom: 15px; }
+        .stat-box { display: flex; flex-direction: column; }
+        .stat-value { font-size: 1.2rem; font-weight: bold; color: #333; }
+        .stat-label { font-size: 0.8rem; color: #777; }
+        .btn {
+            border: none; padding: 12px 24px; border-radius: 25px; font-size: 1rem;
+            font-weight: bold; color: white; cursor: pointer; width: 45%; transition: 0.3s;
+        }
+        #btnStart { background-color: #4CAF50; }
+        #btnStop { background-color: #f44336; display: none; }
+        #btnReset { background-color: #2196F3; display: none; width: 45%; }
+        .controls { display: flex; justify-content: space-between; gap: 10px; }
+        .status { font-size: 0.85rem; color: #555; margin-bottom: 10px; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <div class="overlay">
+        <div class="status" id="statusText">Siap untuk memulai</div>
+        <div class="stats">
+            <div class="stat-box">
+                <span class="stat-value" id="valSteps">0</span>
+                <span class="stat-label">Langkah</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-value" id="valDist">0.00</span>
+                <span class="stat-label">Jarak (km)</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-value" id="valCal">0</span>
+                <span class="stat-label">Kalori (kcal)</span>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="btnStart" class="btn">Mulai</button>
+            <button id="btnStop" class="btn">Selesai</button>
+            <button id="btnReset" class="btn">Reset</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // Registrasi Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Reg Gagal:', err));
+        }
+
+        // Variabel Utama
+        let map, marker, polyline;
+        let watchId = null;
+        let isTracking = false;
+        
+        let totalDistanceMeters = 0; // Hanya jarak berjalan (< 7 km/jam)
+        let lastLat = null, lastLng = null, lastTimestamp = null;
+        
+        let pathCoordinates = [];
+
+        // Inisialisasi Peta Leaflet
+        function initMap() {
+            map = L.map('map').setView([-6.200000, 106.816666], 15); // Default Jakarta
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            polyline = L.polyline([], {color: '#4CAF50', weight: 5, opacity: 0.8}).addTo(map);
+            
+            // Dapatkan lokasi awal
+            navigator.geolocation.getCurrentPosition(pos => {
+                const { latitude, longitude } = pos.coords;
+                map.setView([latitude, longitude], 17);
+                marker = L.marker([latitude, longitude]).addTo(map);
+            }, err => {
+                document.getElementById('statusText').innerText = "Gagal memuat lokasi awal. Cek izin GPS.";
+            }, { enableHighAccuracy: true });
+        }
+
+        // Haversine formula untuk menghitung jarak presisi antara 2 titik (meter)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Radius bumi dalam meter
+            const φ1 = lat1 * Math.PI/180;
+            const φ2 = lat2 * Math.PI/180;
+            const Δφ = (lat2-lat1) * Math.PI/180;
+            const Δλ = (lon2-lon1) * Math.PI/180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c; 
+        }
+
+        function updateStats() {
+            // Asumsi: 1 langkah = 0.762 meter
+            const steps = Math.floor(totalDistanceMeters / 0.762);
+            // Asumsi: Berjalan 1 km membakar sekitar 60 kalori
+            const km = totalDistanceMeters / 1000;
+            const calories = Math.floor(km * 60);
+
+            document.getElementById('valDist').innerText = km.toFixed(2);
+            document.getElementById('valSteps').innerText = steps;
+            document.getElementById('valCal').innerText = calories;
+        }
+
+        function handlePosition(position) {
+            const currentLat = position.coords.latitude;
+            const currentLng = position.coords.longitude;
+            const currentAccuracy = position.coords.accuracy;
+            const currentTimestamp = position.timestamp;
+
+            // Abaikan jika akurasi sangat buruk (> 20 meter)
+            if (currentAccuracy > 20) return;
+
+            const currentLatLng = [currentLat, currentLng];
+
+            // Animasi marker & Update Map
+            if(marker) {
+                marker.setLatLng(currentLatLng);
+                map.panTo(currentLatLng);
+            } else {
+                marker = L.marker(currentLatLng).addTo(map);
+            }
+
+            if (isTracking) {
+                if (lastLat !== null && lastLng !== null) {
+                    const distance = calculateDistance(lastLat, lastLng, currentLat, currentLng);
+                    const timeDiff = (currentTimestamp - lastTimestamp) / 1000; // detik
+                    
+                    if (timeDiff > 0) {
+                        const speedKmh = (distance / timeDiff) * 3.6; // meter/detik ke km/jam
+
+                        // Filter: Jika kecepatan <= 7 km/jam, dihitung sebagai berjalan kaki
+                        if (speedKmh <= 7) {
+                            totalDistanceMeters += distance;
+                            document.getElementById('statusText').innerText = `Merekam... (${speedKmh.toFixed(1)} km/jam)`;
+                        } else {
+                            document.getElementById('statusText').innerText = `Kendaraan terdeteksi (${speedKmh.toFixed(1)} km/jam). Langkah dijeda.`;
+                        }
+                    }
+                }
+
+                // Tambahkan rute ke peta terlepas dari kecepatan (untuk melihat jalur penuh)
+                pathCoordinates.push(currentLatLng);
+                polyline.setLatLngs(pathCoordinates);
+                
+                updateStats();
+
+                lastLat = currentLat;
+                lastLng = currentLng;
+                lastTimestamp = currentTimestamp;
+            }
+        }
+
+        // Tombol Kontrol
+        document.getElementById('btnStart').addEventListener('click', () => {
+            isTracking = true;
+            document.getElementById('btnStart').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'block';
+            document.getElementById('btnReset').style.display = 'none';
+            document.getElementById('statusText').innerText = "Merekam lokasi...";
+
+            // Mulai pelacakan GPS akurasi tinggi
+            watchId = navigator.geolocation.watchPosition(handlePosition, 
+                err => document.getElementById('statusText').innerText = "GPS Error: " + err.message, 
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+            );
+        });
+
+        document.getElementById('btnStop').addEventListener('click', () => {
+            isTracking = false;
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+            
+            document.getElementById('btnStop').style.display = 'none';
+            document.getElementById('btnStart').style.display = 'none';
+            document.getElementById('btnReset').style.display = 'block';
+            document.getElementById('statusText').innerText = "Rute selesai direkam.";
+            
+            // Fit peta untuk menampilkan seluruh rute
+            if (pathCoordinates.length > 0) {
+                map.fitBounds(polyline.getBounds());
+            }
+        });
+
+        document.getElementById('btnReset').addEventListener('click', () => {
+            totalDistanceMeters = 0;
+            pathCoordinates = [];
+            lastLat = null; lastLng = null;
+            polyline.setLatLngs([]);
+            updateStats();
+            
+            document.getElementById('btnReset').style.display = 'none';
+            document.getElementById('btnStart').style.display = 'block';
+            document.getElementById('statusText').innerText = "Siap untuk memulai";
+            
+            navigator.geolocation.getCurrentPosition(pos => {
+                map.setView([pos.coords.latitude, pos.coords.longitude], 17);
+            });
+        });
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
