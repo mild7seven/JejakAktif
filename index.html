@@ -7,24 +7,15 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#FC4C02">
     
-    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     
     <style>
         :root { --strava-orange: #FC4C02; --dark-bg: #1a1a1a; }
         body, html { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--dark-bg); color: white; height: 100%; overflow: hidden; }
         
-        #map { height: 100vh; width: 100vw; position: absolute; top: 0; left: 0; }
-
-        /* Kustomisasi Marker MapLibre */
-        .user-marker {
-            width: 18px; height: 18px;
-            background-color: var(--strava-orange);
-            border: 3px solid white;
-            border-radius: 50%;
-            box-shadow: 0 0 15px rgba(252, 76, 2, 0.8);
-            transition: transform 0.2s;
-        }
+        /* Filter CSS untuk membuat OpenStreetMap gratis menjadi Dark Mode */
+        #map { height: 100vh; width: 100vw; position: absolute; top: 0; left: 0; filter: grayscale(0.8) invert(0.9) hue-rotate(180deg) brightness(0.95); }
 
         .header {
             position: absolute; top: 0; width: 100%; padding: 20px;
@@ -96,73 +87,61 @@
         <button id="btnStop" class="btn-stop">SELESAI</button>
     </div>
 
-    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
     
     <script>
-        let map, marker, watchId, wakeLock = null;
+        let map, vectorSource, markerFeature, lineFeature, watchId, wakeLock = null;
         let isRecording = false;
         let totalMeters = 0;
         let lastLat = null, lastLng = null, lastTimestamp = null;
         
-        // Array GeoJSON format [Lng, Lat]
+        // Simpan koordinat yang sudah dikonversi ke format EPSG:3857 (Web Mercator)
         let pathCoordinates = [];
 
-        // Inisialisasi MapLibre
         function initMap() {
-            map = new maplibregl.Map({
-                container: 'map',
-                // Menggunakan Dark Matter basemap gratis tanpa API Key
-                style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-                center: [106.816666, -6.200000], // [Lng, Lat]
-                zoom: 16,
-                pitch: 50, // Kemiringan 3D
-                bearing: 0,
-                attributionControl: false
+            // 1. Setup Vektor untuk Rute (Line) dan Lokasi (Marker)
+            vectorSource = new ol.source.Vector();
+            
+            const vectorLayer = new ol.layer.Vector({
+                source: vectorSource,
+                style: new ol.style.Style({
+                    stroke: new ol.style.Stroke({ color: '#FC4C02', width: 6 }), // Warna Garis
+                    image: new ol.style.Circle({
+                        radius: 8,
+                        fill: new ol.style.Fill({ color: '#FC4C02' }), // Warna Marker
+                        stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 })
+                    })
+                })
             });
 
-            // Elemen Marker HTML kustom
-            const markerDiv = document.createElement('div');
-            markerDiv.className = 'user-marker';
-            marker = new maplibregl.Marker({ element: markerDiv });
-
-            map.on('load', () => {
-                // Tambahkan source data GeoJSON untuk garis rute
-                map.addSource('routeSource', {
-                    'type': 'geojson',
-                    'data': {
-                        'type': 'Feature',
-                        'properties': {},
-                        'geometry': {
-                            'type': 'LineString',
-                            'coordinates': []
-                        }
-                    }
-                });
-
-                // Tambahkan layer untuk menggambar garis
-                map.addLayer({
-                    'id': 'routeLayer',
-                    'type': 'line',
-                    'source': 'routeSource',
-                    'layout': {
-                        'line-join': 'round',
-                        'line-cap': 'round'
-                    },
-                    'paint': {
-                        'line-color': '#FC4C02',
-                        'line-width': 6,
-                        'line-opacity': 0.9
-                    }
-                });
-
-                // Mulai cari lokasi
-                startTracking();
+            // 2. Inisialisasi Peta
+            map = new ol.Map({
+                target: 'map',
+                layers: [
+                    new ol.layer.Tile({ source: new ol.source.OSM() }), // OpenStreetMap base
+                    vectorLayer
+                ],
+                view: new ol.View({
+                    center: ol.proj.fromLonLat([106.816666, -6.200000]), // [Lon, Lat] Jakarta
+                    zoom: 16,
+                    maxZoom: 20
+                }),
+                controls: [] // Hilangkan kontrol bawaan agar UI bersih
             });
+
+            // 3. Setup Objek Geometri
+            markerFeature = new ol.Feature();
+            lineFeature = new ol.Feature({ geometry: new ol.geom.LineString([]) });
+            vectorSource.addFeature(markerFeature);
+            vectorSource.addFeature(lineFeature);
+
+            // Mulai pencarian GPS
+            startTracking();
 
             if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
         }
 
-        // Kalkulasi Jarak Haversine (output: meter)
+        // Haversine Formula (menggunakan raw lat/lon)
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371e3;
             const p1 = lat1 * Math.PI/180;
@@ -183,9 +162,11 @@
         function handlePosition(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
             const currentTimestamp = pos.timestamp;
-            const currentLngLat = [longitude, latitude]; // Format MapLibre
+            
+            // Konversi GPS standar ke proyeksi peta OpenLayers (EPSG:3857)
+            const projectedCoord = ol.proj.fromLonLat([longitude, latitude]); 
 
-            // Aktifkan tombol jika lokasi pertama kali dikunci
+            // Aktifkan UI jika GPS terkunci
             const btnStart = document.getElementById('btnAction');
             if (btnStart.disabled && accuracy < 50) {
                 btnStart.disabled = false;
@@ -193,12 +174,12 @@
                 document.getElementById('statusLabel').innerText = "STANDBY (GPS READY)";
             }
 
-            // Set Marker & Kamera
-            marker.setLngLat(currentLngLat).addTo(map);
+            // Update posisi Marker
+            markerFeature.setGeometry(new ol.geom.Point(projectedCoord));
             
-            // Pan kamera secara dinamis
+            // Kamera mengikuti marker
             if (isRecording || pathCoordinates.length === 0) {
-                map.easeTo({ center: currentLngLat, duration: 1000 });
+                map.getView().animate({ center: projectedCoord, duration: 500 });
             }
 
             // Logika Perekaman
@@ -219,13 +200,9 @@
                     }
                 }
 
-                // Update Garis di Peta
-                pathCoordinates.push(currentLngLat);
-                map.getSource('routeSource').setData({
-                    'type': 'Feature',
-                    'properties': {},
-                    'geometry': { 'type': 'LineString', 'coordinates': pathCoordinates }
-                });
+                // Update Garis Rute (LineString)
+                pathCoordinates.push(projectedCoord);
+                lineFeature.getGeometry().setCoordinates(pathCoordinates);
                 
                 updateUI();
                 lastLat = latitude;
@@ -246,12 +223,8 @@
             lastLat = null; lastLng = null; pathCoordinates = [];
             totalMeters = 0; updateUI();
             
-            // Bersihkan garis rute sebelumnya
-            map.getSource('routeSource').setData({
-                'type': 'Feature',
-                'properties': {},
-                'geometry': { 'type': 'LineString', 'coordinates': [] }
-            });
+            // Bersihkan rute sebelumnya
+            lineFeature.getGeometry().setCoordinates([]);
 
             document.getElementById('btnAction').style.display = 'none';
             document.getElementById('btnStop').style.display = 'block';
@@ -271,19 +244,15 @@
             
             if (wakeLock) { wakeLock.release().then(() => wakeLock = null); }
             
-            // Fit peta agar seluruh rute terlihat
+            // Zoom keluar untuk menampilkan seluruh rute jika data mencukupi
             if (pathCoordinates.length > 1) {
-                const bounds = new maplibregl.LngLatBounds(pathCoordinates[0], pathCoordinates[0]);
-                for (const coord of pathCoordinates) bounds.extend(coord);
-                map.fitBounds(bounds, { padding: 50, pitch: 0 }); // Ubah pitch ke 0 untuk meninjau rute dari atas
+                const extent = vectorSource.getExtent();
+                map.getView().fit(extent, { padding: [50, 50, 250, 50], duration: 1000 });
             }
         }
 
-        // Event Listener Tombol
         document.getElementById('btnAction').onclick = toggleRecord;
         document.getElementById('btnStop').onclick = stopRecord;
-        
-        // Inisialisasi
         window.onload = initMap;
     </script>
 </body>
