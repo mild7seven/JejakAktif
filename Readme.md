@@ -1,19 +1,9 @@
-# JejakAktif
+# JejakAktif - OpenLayers Edition
 
-JejakAktif adalah Progressive Web App (PWA) berbasis lokasi (GPS) yang melacak rute pergerakan Anda, menghitung estimasi jumlah langkah, dan kalori yang terbakar.
+Progressive Web App (PWA) untuk navigasi kebugaran yang digerakkan oleh **OpenLayers**, pustaka GIS (*Geographic Information System*) standar industri untuk pemetaan yang presisi dan arsitektur data vektor yang solid.
 
-## Fitur Utama
-* **Filter Kendaraan Otomatis:** Sistem mendeteksi kecepatan real-time. Jika Anda bergerak di atas 7 km/jam (naik sepeda/motor/mobil/kereta), perhitungan langkah dan kalori otomatis dijeda hingga Anda kembali ke kecepatan berjalan normal.
-* **Presisi GPS Tinggi:** Menggunakan algoritma Haversine formula dan parameter `enableHighAccuracy: true` dari HTML5 Geolocation API.
-* **Peta Interaktif:** Terintegrasi dengan Leaflet.js dengan animasi pergerakan penanda lokasi (marker) dan penggambaran rute jejak (polyline) secara langsung.
-* **PWA Ready:** Mendukung manifest dan Service Worker untuk di-install ke layar utama *smartphone* seperti aplikasi native.
-
-## Cara Menggunakan
-1. Pastikan file di-*hosting* melalui **HTTPS**. HTML5 Geolocation API tidak akan berfungsi pada koneksi HTTP biasa (kecuali di environment `localhost`).
-2. Buka di browser *smartphone*. Setujui akses Lokasi (GPS).
-3. Klik tombol **Mulai**. Berjalanlah, dan aplikasi akan menggambar rute Anda di atas peta.
-4. Klik **Selesai** untuk meninjau keseluruhan metrik dan tampilan jauh peta rute Anda.
-
-## Teknologi
-* HTML, CSS, JavaScript (Vanilla)
-* Leaflet.js & OpenStreetMap
+## Paradigma OpenLayers dalam Proyek Ini
+Jika Anda membandingkan kode ini dengan Leaflet atau MapLibre, Anda akan menyadari beberapa fondasi kuat OpenLayers:
+1. **Pemisahan Data dan Tampilan (Source vs Layer):** Penanda (Marker) dan garis rute (Path) dimasukkan ke dalam `ol.source.Vector` sebagai `Feature`. Sumber data ini kemudian di-render oleh `ol.layer.Vector`. Ini membuat pemrosesan ribuan titik GPS sangat ringan karena tidak mengotori DOM browser secara langsung.
+2. **Proyeksi Koordinat (EPSG:3857 vs EPSG:4326):** OpenLayers sangat ketat secara kartografi. Koordinat murni dari GPS diubah menggunakan `ol.proj.fromLonLat()` sebelum digambar ke kanvas, memastikan geometri tidak mengalami distorsi visual.
+3. **Auto-Fit Ekstensif:** Saat menekan tombol selesai, fungsi `vectorSource.getExtent()` langsung menghitung kotak pembatas (Bounding Box) dari seluruh garis rute, dan `map.getView().fit()` membuat kamera mundur menyesuaikan layar secara mulus dengan tambahan `padding` bawah agar tidak tertutup oleh antarmuka *dashboard* statistik.
