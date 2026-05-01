@@ -1,10 +1,10 @@
-const CACHE_NAME = 'jejakaktif-maplibre-v1';
+const CACHE_NAME = 'jejakaktif-openlayers-v1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css',
-  'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js'
+  'https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css',
+  'https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js'
 ];
 
 self.addEventListener('install', event => {
